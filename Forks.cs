@@ -57,6 +57,11 @@ namespace NinjaTrader.NinjaScript.Strategies
 		double[] lmLine;
 		double[] mlmLine;
 		double[] mhmLine;
+		double[] ms_mLine;
+		double[] ms_hmLine;
+		double[] ms_lmLine;
+		double[] ms_mlmLine;
+		double[] ms_mhmLine;
 		private Order forkOrder								= null;
 		int barCounter;
 		private Order entryOrder						= null; // This variable holds an object representing our entry order
@@ -68,6 +73,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 		bool modifiedSchiff = false;
 		int delta = 0;
 		string forkId = "";
+		string msforkId = "";
 		float forkSlope = 0;
 		double forkWidth = 0;
 		double zeroLine = 0;
@@ -104,12 +110,18 @@ namespace NinjaTrader.NinjaScript.Strategies
 				FORK_WIDTH = 10;
 				HIGH_STRENGTH = 15;
 				STOP_VALUE = 500;
-				DRAW_TRIANGLES = true;
+				drawPitchforks = true;
+				drawModifiedSchiff = true;
 				drawDots = true;
 				useATRStops = true;
 				atMarket = true;
 				breakEvenStop = false;
-				SLOPE_LIMIT_MSFK = 3;
+				msfkEntries = true;
+				msfkEntriesMlm = true;
+				msfkEntriesBrko = true;
+				fkEntries = true;
+				fkEntriesMlm = true;
+				fkEntriesBrko = true;
 			}
 			else if (State == State.Realtime)
 			{
@@ -144,6 +156,16 @@ namespace NinjaTrader.NinjaScript.Strategies
 				mlmLine[0] = -1;
 				mhmLine = new double[FORK_LENGTH+1];
 				mhmLine[0] = -1;
+				ms_mLine = new double[FORK_LENGTH+1];
+				ms_mLine[0] = -1;
+				ms_hmLine = new double[FORK_LENGTH+1];
+				ms_hmLine[0] = -1;
+				ms_lmLine = new double[FORK_LENGTH+1];
+				ms_lmLine[0] = -1;
+				ms_mlmLine = new double[FORK_LENGTH+1];
+				ms_mlmLine[0] = -1;
+				ms_mhmLine = new double[FORK_LENGTH+1];
+				ms_mhmLine[0] = -1;
 				minLow = 9999;
 				maxHigh = 0;
 				minLowRecent = 9999;
@@ -310,7 +332,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				double mid = -1;
 				double dY = -1;
 				double dX = -1;
-				delta = maxHighBarsAgo - minLowRecentBarsAgo;
+				
 				
 				if(changeHigh && changeMajorLow && changeRecentLow) {	
 					mid = (maxHigh + minLowRecent)/2;
@@ -321,9 +343,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 					dX = Math.Abs(medianBarsAgo - minLowBarsAgo);
 					mlSlope = dY/dX;
 					drawFork = false;
-					// check pitchfork slope
-					//double bc = maxHigh - minLowRecent;
-					//if( bc > 2*atr && mlSlope > 0
 					// make sure high is between two lows
 					if(mlSlope > 0 
 						&& minLowBarsAgo > maxHighBarsAgo && minLowRecentBarsAgo < maxHighBarsAgo)
@@ -339,154 +358,223 @@ namespace NinjaTrader.NinjaScript.Strategies
 					}
 				}
 				
-				if (drawFork) {	
-					// mediansRecordedBA is just the [0] reference for the median lines we compute
-					// so in the future bars, we just need CurrentBar - medianRecordedBA to obtain current index into median lines
-					mediansRecordedBarsAgo = CurrentBar;
-					// if slope is greater than 0.75, we use modified schiff
-					if(mlSlope > SLOPE_LIMIT_MSFK && (maxHigh - minLow) < 2*FORK_WIDTH) {
-	                    //minLowBarsAgo += delta;
-						maxHighBarsAgo += delta;
-						minLowRecentBarsAgo += delta;
-						mid = minLowRecent;
-						minLowRecent = minLowRecent - (maxHigh - minLowRecent);
-						medianBarsAgo = minLowRecentBarsAgo;
-						minLowRecentBarsAgo = medianBarsAgo - delta;
-						medianHBarsAgo = (maxHighBarsAgo + medianBarsAgo)/2;
-						medianLBarsAgo = (medianBarsAgo + minLowRecentBarsAgo)/2;
-						dY = mid - minLow;
-						dX = Math.Abs(medianBarsAgo - minLowBarsAgo);
-						mlSlope = dY/dX;
-						if(mlSlope < 0 ) {
-							drawFork = false;
-							modifiedSchiff = false;
-							delta = 0;
-						} else {
-							modifiedSchiff = true;
-							Draw.Dot(this, "schiff"+dotCounter, true, medianBarsAgo-delta, Math.Round(mid), Brushes.Yellow);
-							dotCounter++;
-						}
-					} else if(mlSlope >=2 && (maxHigh - minLow) >= 2*FORK_WIDTH) {
-						modifiedSchiff = false;
-						// compute only the bcParallel
-						//################# BC is the sliding parallel ###########################
-						dY = minLowRecent - minLow;
-						dX = Math.Abs(minLowRecentBarsAgo - minLowBarsAgo);
-						mlSlope = dY/dX;
-						lmLine[0] = minLowRecent;
-						forkSlope = (float) mlSlope;
-						forkWidth = hmLine[0] - lmLine[0];
-						for(int i=1; i<FORK_LENGTH; i++) {
-							lmLine[i] = lmLine[0] + mlSlope*(i);
-						}
-						barCounter = 0;
-						if(DRAW_TRIANGLES) {
-		                    Draw.Line(this, "ab"+counter, minLowBarsAgo, minLow, maxHighBarsAgo, maxHigh, Brushes.Blue);
-							Draw.Line(this, "bc"+counter, maxHighBarsAgo, maxHigh, minLowRecentBarsAgo, minLowRecent, Brushes.Red);
-							Draw.Line(this, "ac"+counter, minLowBarsAgo, minLow, minLowRecentBarsAgo, minLowRecent, Brushes.Black);
-						}
-						forkId = "bc:"+Math.Round(mlSlope, 2)+"-"+Math.Round(atr, 2);
-						forkWidth = maxHigh - lmLine[0];
-						Draw.Text(this, "id"+counter, forkId, 
-							(int) (minLowBarsAgo+minLowRecentBarsAgo)/2, (minLow+minLowRecent)/2, Brushes.Black);
-						counter++;
-						drawFork = false;
-						if(entryOrder != null)
-						{
-							Draw.ArrowDown(this, "o"+dotCounter, true, 0, Close[0], Brushes.Red);
-							Draw.Text(this, "cl"+dotCounter, ""+entryOrder.Name, 0, Low[0], Brushes.Red);
-	                        dotCounter++;
-							CancelOrder(entryOrder);
-							entryOrder = null;						
-						}
-						changeHigh = changeMajorLow = changeRecentLow = false;
+				if(drawFork) {
+					mLine[0] = mid;
+					hmLine[0] = maxHigh;
+					mhmLine[0] = (maxHigh + mid)/2;
+					lmLine[0] = minLowRecent;
+					mlmLine[0] = (minLowRecent + mid)/2;
+					forkSlope = (float) mlSlope;
+					
+					for(int i=0; i<FORK_LENGTH; i++) {
+						mLine[i] = mLine[0] + mlSlope*(i + medianBarsAgo);
 					}
 					
-					if(drawFork) {
-						mLine[0] = mid;
-						hmLine[0] = maxHigh;
-						mhmLine[0] = (maxHigh + mid)/2;
-						lmLine[0] = minLowRecent;
-						mlmLine[0] = (minLowRecent + mid)/2;
+					for(int i=0; i<FORK_LENGTH; i++) {
+						mhmLine[i] = mhmLine[0] + mlSlope*(i + medianHBarsAgo);
+					}
+									
+					for(int i=0; i<FORK_LENGTH; i++) {
+						hmLine[i] = hmLine[0] + mlSlope*(i + maxHighBarsAgo);
+					}
+					
+					for(int i=1; i<FORK_LENGTH; i++) {
+						lmLine[i] = lmLine[0] + mlSlope*(i);
+					}
+					
+					for(int i=0; i<FORK_LENGTH; i++) {
+						mlmLine[i] = mlmLine[0] + mlSlope*(i + medianLBarsAgo);
+					}
+					
+					//Draw.Dot(this, "dh"+dotCounter, true, (int) maxHighBarsAgo, maxHigh, Brushes.Green);
+                    //Draw.Dot(this, "dml"+dotCounter, true, (int)minLowBarsAgo, minLow, Brushes.Red);
+                    //Draw.Dot(this, "dmlr"+dotCounter, true, (int)minLowRecentBarsAgo, minLowRecent-atr, Brushes.Pink);
+                    //dotCounter++;
+					barCounter = 0;
+					forkId = "_fk:"+Math.Round(mlSlope, 2)+"-"+Math.Round(atr, 2);
+					forkWidth = hmLine[0] - lmLine[0];
+				    // just draw triangles
+					if(drawPitchforks) {
+						barCounter = 0;
+                        Draw.Line(this, "ab"+counter, minLowBarsAgo, minLow, maxHighBarsAgo, maxHigh, Brushes.Blue);
+						Draw.Line(this, "bc"+counter, maxHighBarsAgo, maxHigh, minLowRecentBarsAgo, minLowRecent, Brushes.Red);
+						Draw.Line(this, "ac"+counter, minLowBarsAgo, minLow, minLowRecentBarsAgo, minLowRecent, Brushes.Black);
+						Draw.Text(this, "id"+counter, forkId, 
+							(int) (minLowBarsAgo+minLowRecentBarsAgo)/2, (minLow+minLowRecent)/2, Brushes.MediumSeaGreen);
+					} 
+					
+					// calculate the modified schiff anyway
+					//####################################################
+					
+					// only makes sense to add MHML and MLML lines 
+					// if maxHighBA - minLowRecent was at least = 2
+					
+					mid = minLowRecent;
+					// overwrite minLowRecent
+					minLowRecent = minLowRecent - (maxHigh - minLowRecent);
+					delta = maxHighBarsAgo - minLowRecentBarsAgo;	
+					int msfkMedianBarsAgo = minLowRecentBarsAgo;
+					int msfkMaxHighBarsAgo = maxHighBarsAgo;
+						
+					// the new median
+					medianBarsAgo = minLowRecentBarsAgo;
+					
+					//CHECK IF SHIFTING IS NEEDED
+					int Db = medianBarsAgo - (maxHighBarsAgo - medianBarsAgo);
+					if (Db < 0) {
+						// now adjust
+						maxHighBarsAgo += Math.Abs(Db);
+						medianBarsAgo += Math.Abs(Db);
+						minLowRecentBarsAgo = 0;
+					} 
+					barCounter = Db;
+					if(delta >= 2) 
+						medianHBarsAgo = (maxHighBarsAgo + medianBarsAgo)/2;
+					if(Db >=0 )
+						minLowRecentBarsAgo = Db;
+					if(delta >= 2) {
+						if (medianHBarsAgo % 2 == 1)
+							medianHBarsAgo += 1;				// set mhml closer to hml
+					}
+					if(delta >= 2) {
+						medianLBarsAgo = (medianBarsAgo)/2;	
+						if (medianLBarsAgo % 2 == 1)
+							medianLBarsAgo -= 1;				// set mlml closer to lml
+					}
+						
+					dY = mid - minLow;
+					dX = Math.Abs(medianBarsAgo - minLowBarsAgo);
+					mlSlope = dY/dX;
+					if(mlSlope < 0 ) {
+						drawFork = false;
+						modifiedSchiff = false;
+						delta = 0;
+					} else if(mlSlope > 0) {
+						modifiedSchiff = true;						
+						ms_mLine[0] = mid;
+						ms_hmLine[0] = maxHigh;
+						if (delta >= 2)
+							ms_mhmLine[0] = (maxHigh + mid)/2;
+						else
+							ms_mhmLine[0] = -1;
+						ms_lmLine[0] = minLowRecent;
+						if (delta >= 2)
+							ms_mlmLine[0] = (minLowRecent + mid)/2;
+						else
+							ms_mlmLine[0] = -1;
+						
 						forkSlope = (float) mlSlope;
 						
 						for(int i=0; i<FORK_LENGTH; i++) {
-							mLine[i] = mLine[0] + mlSlope*(i + medianBarsAgo);// + (int)2*delta/2);
+							ms_mLine[i] = ms_mLine[0] + mlSlope*(i + medianBarsAgo);
 						}
 						
-						for(int i=0; i<FORK_LENGTH; i++) {
-							mhmLine[i] = mhmLine[0] + mlSlope*(i + medianHBarsAgo);// + (int) 3*delta/2);
-						}
+						if (delta >= 2)
+							for(int i=0; i<FORK_LENGTH; i++) {
+								ms_mhmLine[i] = ms_mhmLine[0] + mlSlope*(i + medianHBarsAgo);
+							}
 										
 						for(int i=0; i<FORK_LENGTH; i++) {
-							hmLine[i] = hmLine[0] + mlSlope*(i + maxHighBarsAgo);// + (int) 4*delta/2);
+							ms_hmLine[i] = ms_hmLine[0] + mlSlope*(i + maxHighBarsAgo);
 						}
 						
 						for(int i=1; i<FORK_LENGTH; i++) {
-							lmLine[i] = lmLine[0] + mlSlope*(i);
+							ms_lmLine[i] = ms_lmLine[0] + mlSlope*(i);
 						}
 						
-						for(int i=0; i<FORK_LENGTH; i++) {
-							mlmLine[i] = mlmLine[0] + mlSlope*(i + medianLBarsAgo);// + (int) delta/2);
-						}
-						//Draw.Dot(this, "dh"+dotCounter, true, (int) maxHighBarsAgo, maxHigh, Brushes.Green);
-	                    //Draw.Dot(this, "dml"+dotCounter, true, (int)minLowBarsAgo, minLow, Brushes.Red);
-	                    //Draw.Dot(this, "dmlr"+dotCounter, true, (int)minLowRecentBarsAgo, minLowRecent-atr, Brushes.Pink);
-	                    //dotCounter++;
-						if(!modifiedSchiff) {
-							barCounter = 0;
-							forkId = "fk:"+Math.Round(mlSlope, 2)+"-"+Math.Round(atr, 2);
-							forkWidth = hmLine[0] - lmLine[0];
-						} else {
-							barCounter = -1*delta;
-	                    	forkId = "msfk:"+Math.Round(mlSlope, 2)+"-"+Math.Round(atr, 2);
-							forkWidth = hmLine[0] - lmLine[0];
-						}
-	                    // just draw triangles
-						if(!modifiedSchiff && DRAW_TRIANGLES) {
-							barCounter = 0;
-	                        Draw.Line(this, "ab"+counter, minLowBarsAgo, minLow, maxHighBarsAgo, maxHigh, Brushes.Blue);
-							Draw.Line(this, "bc"+counter, maxHighBarsAgo, maxHigh, minLowRecentBarsAgo, minLowRecent, Brushes.Red);
-							Draw.Line(this, "ac"+counter, minLowBarsAgo, minLow, minLowRecentBarsAgo, minLowRecent, Brushes.Black);
-							Draw.Text(this, "id"+counter, forkId, 
-								(int) (minLowBarsAgo+minLowRecentBarsAgo)/2, (minLow+minLowRecent)/2, Brushes.MediumSeaGreen);
-						} else if(modifiedSchiff && DRAW_TRIANGLES) {
-							Draw.Line(this, "ab"+counter, minLowBarsAgo, minLow, maxHighBarsAgo-delta, maxHigh, Brushes.Blue);
-							Draw.Line(this, "bc"+counter, maxHighBarsAgo-delta, maxHigh, minLowRecentBarsAgo-delta, minLowRecent, Brushes.Red);
-							Draw.Line(this, "ac"+counter, minLowBarsAgo, minLow, minLowRecentBarsAgo-delta, minLowRecent, Brushes.Black);
-							Draw.Text(this, "id"+counter, forkId, 
+						if (delta >= 2)
+							for(int i=0; i<FORK_LENGTH; i++) {
+								ms_mlmLine[i] = ms_mlmLine[0] + mlSlope*(i + medianLBarsAgo);
+							}
+						
+	                	msforkId = "msfk:"+Math.Round(mlSlope, 2)+"-"+Math.Round(atr, 2);
+						int msfkLowRecentBA = -1;
+						if( Db < 0 )
+							msfkLowRecentBA = Db;
+						else
+							msfkLowRecentBA = minLowRecentBarsAgo;
+						
+							
+						if(drawFork && drawModifiedSchiff) {
+							Draw.Dot(this, "schiff"+dotCounter, true, msfkMedianBarsAgo, Math.Round(mid), Brushes.Yellow);
+							dotCounter++;
+							Draw.Line(this, "msab"+counter, minLowBarsAgo, minLow, msfkMaxHighBarsAgo, maxHigh, Brushes.Blue);
+							Draw.Line(this, "msbc"+counter, msfkMaxHighBarsAgo, maxHigh, msfkLowRecentBA, minLowRecent, Brushes.Red);
+							Draw.Line(this, "msac"+counter, minLowBarsAgo, minLow, msfkLowRecentBA, minLowRecent, Brushes.Black);
+							Draw.Text(this, "msid"+counter, msforkId, 
 								(int) (minLowBarsAgo+minLowRecentBarsAgo)/2, (minLow+minLowRecent)/2, Brushes.YellowGreen);
 						}
-						//Draw.Text(this, "slp"+counter, ""+mlSlope, (int)maxHighBarsAgo, maxHigh+2);
-						counter++;
-						// if we drew a new fork and have a current position, exit pls
-						//if (Position.MarketPosition == MarketPosition.Long) {
-						//	ExitLong("touch");
-						//	entryOrder = null;
-						//}
-						// if we have an as yet unfilled limit order from a previous fork, cancel it
-						if(entryOrder != null && drawFork) //(CurrentBar - barNumberOfOrder) >= (int) atr)) 
-						{
-							Draw.ArrowDown(this, "o"+dotCounter, true, 0, Close[0], Brushes.Red);
-							Draw.Text(this, "cl"+dotCounter, ""+entryOrder.Name, 0, Low[0], Brushes.Red);
-	                        dotCounter++;
-							CancelOrder(entryOrder);
-							entryOrder = null;						
-						}					
-						//
-						drawFork = false;
-						changeHigh = changeMajorLow = changeRecentLow = false;
 					}
+						
+					//####################################################
+					//Draw.Text(this, "slp"+counter, ""+mlSlope, (int)maxHighBarsAgo, maxHigh+2);
+					counter++;
+					// if we drew a new fork and have a current position, exit pls
+					//if (Position.MarketPosition == MarketPosition.Long) {
+					//	ExitLong("touch");
+					//	entryOrder = null;
+					//}
+					// if we have an as yet unfilled limit order from a previous fork, cancel it
+					if(entryOrder != null && drawFork) //(CurrentBar - barNumberOfOrder) >= (int) atr)) 
+					{
+						Draw.ArrowDown(this, "o"+dotCounter, true, 0, Close[0], Brushes.Red);
+						Draw.Text(this, "cl"+dotCounter, ""+entryOrder.Name, 0, Low[0], Brushes.Red);
+                        dotCounter++;
+						CancelOrder(entryOrder);
+						entryOrder = null;						
+					}					
+					//
+					drawFork = false;
+					changeHigh = changeMajorLow = changeRecentLow = false;
+				
 	  			}
-				//if(barCounter!=-99) {
-				//	Draw.Text(this, "brc"+dotCounter, ""+barCounter, 
-				//		0, Low[0]-1, Brushes.Coral);
-				//	dotCounter++;
-				//}
 					
 	            // ###################################################################################################
 	            // ########################### check for entries #####################################################
-				if (forkId.IndexOf("fk") != -1 
+				if(msforkId.IndexOf("msfk") != -1 && msfkEntries
+					&& barCounter >= 1 && barCounter < FORK_LENGTH - 1) { 
+					// ENTRY modified schiff lmLine barrier
+					if(Low[0] < ms_lmLine[barCounter]
+						&& Close[0] > ms_lmLine[barCounter] + TickSize
+						&& High[1] > ms_lmLine[barCounter] 
+						&& High[2] > ms_lmLine[barCounter]
+						) {
+						if(entryOrder == null && Position.MarketPosition == MarketPosition.Flat) {
+							barNumberOfOrder = CurrentBar;
+							Draw.ArrowUp(this, "mso"+dotCounter, true, 0, ms_lmLine[barCounter], Brushes.Yellow);
+							Draw.Text(this, "msfk"+dotCounter, " ms_lm", 1, ms_lmLine[barCounter], Brushes.Olive);
+							//Draw.Text(this, "bc"+dotCounter, ""+Math.Round(ms_lmLine[barCounter], 2), 0, ms_lmLine[barCounter], Brushes.Olive);
+							if(!atMarket)
+								EnterLongMIT(0, true, 1, ms_lmLine[barCounter], msforkId);
+							else
+								EnterLong(1, msforkId);
+							zeroLine = ms_lmLine[0];
+						}
+					}
+				}
+				if(msforkId.IndexOf("msfk") != -1  && msfkEntriesMlm && mlmLine[0] != -1
+					&& barCounter >= 1 && barCounter < FORK_LENGTH - 1) {
+					//ENTRY mlmLine barrier
+					if(Low[0] <= ms_mlmLine[barCounter] && Low[0] > ms_lmLine[barCounter]
+						&& High[0] <= ms_mhmLine[barCounter]
+						&& Close[0] > ms_mlmLine[barCounter] + TickSize
+						&& High[1] > ms_mlmLine[barCounter] 
+						&& High[2] > ms_mlmLine[barCounter]
+						) {
+						if (entryOrder == null && Position.MarketPosition == MarketPosition.Flat) {
+	                        barNumberOfOrder = CurrentBar;
+	                        Draw.ArrowUp(this, "mso"+dotCounter, true, 0, ms_mlmLine[barCounter], Brushes.Olive);
+							Draw.Text(this, "msfk"+dotCounter, " ms_mlm", 1, ms_mlmLine[barCounter], Brushes.Olive);
+							//Draw.Text(this, "bc"+dotCounter, "long: "+Math.Round(ms_mlmLine[barCounter], 2), 0, ms_mlmLine[barCounter], Brushes.Olive);
+							if(!atMarket)
+								EnterLongMIT(0, true, 1, ms_mlmLine[barCounter], msforkId);
+							else
+								EnterLong(1, msforkId);
+							zeroLine = ms_lmLine[0];
+	                    }
+					}
+				}
+				if (forkId.IndexOf("_fk") != -1  && fkEntries
 					&& barCounter >= 1 && barCounter < FORK_LENGTH - 1) {
 	                // ENTRY pitchfork lmLine barrier
 	                if (Low[0] <= lmLine[barCounter]
@@ -499,7 +587,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 	                        Draw.ArrowUp(this, "o" + dotCounter, true, 0, lmLine[barCounter], Brushes.Green);
 							Draw.Text(this, "fk"+dotCounter, " lml", 1, lmLine[barCounter], Brushes.Olive);
 	                        dotCounter++;
-	                        if(!atMarket)
+							if(!atMarket)
 								EnterLongMIT(0, true, 1, lmLine[barCounter]+TickSize, forkId);
 							else 
 								EnterLong(1, forkId);
@@ -507,46 +595,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 	                    }
 	                }
 	            }
-	            if(forkId.IndexOf("msfk") != -1 
-					&& barCounter >= 1 && barCounter < FORK_LENGTH - 1) { 
-					// ENTRY modified schiff lmLine barrier
-					if(Low[0] < lmLine[barCounter]
-						&& Close[0] > lmLine[barCounter] + TickSize
-						&& High[1] > lmLine[barCounter] 
-						&& High[2] > lmLine[barCounter]
-						) {
-						if(entryOrder == null && Position.MarketPosition == MarketPosition.Flat) {
-							barNumberOfOrder = CurrentBar;
-							Draw.ArrowUp(this, "o"+dotCounter, true, 0, lmLine[barCounter], Brushes.Yellow);
-							Draw.Text(this, "fk"+dotCounter, " msfk", 1, lmLine[barCounter], Brushes.Olive);
-							//Draw.Text(this, "bc"+dotCounter, ""+Math.Round(lmLine[barCounter], 2), 0, lmLine[barCounter], Brushes.Olive);
-							if(!atMarket)
-								EnterLongMIT(0, true, 1, lmLine[barCounter], forkId);
-							else
-								EnterLong(1, forkId);
-							zeroLine = lmLine[0];
-						}
-					}
-				}
-				/*
-				if(forkId.IndexOf("bc") != -1
-					&& barCounter >= 0 && barCounter < FORK_LENGTH - 1) {
-					// ENTRY bc line barrier
-					if(Low[0] < lmLine[barCounter] 
-						&& Close[0] > lmLine[barCounter]
-						) {
-						if (entryOrder == null && Position.MarketPosition == MarketPosition.Flat) {
-	                        barNumberOfOrder = CurrentBar;
-	                        Draw.ArrowUp(this, "o"+dotCounter, true, 0, lmLine[barCounter], Brushes.Olive);
-							Draw.Text(this, "fk"+dotCounter, " bc", 1, lmLine[barCounter], Brushes.Olive);
-							//Draw.Text(this, "bc"+dotCounter, ""+Math.Round(lmLine[barCounter], 2), 0, lmLine[barCounter], Brushes.Olive);
-	                        dotCounter++;
-	                        EnterLongMIT(0, true, 1, lmLine[barCounter], forkId);
-							zeroLine = lmLine[0];
-	                    }
-					}
-				}*/
-				if(forkId.IndexOf("fk") != -1 && forkWidth >= FORK_WIDTH
+	            
+				if(forkId.IndexOf("_fk") != -1  && fkEntriesMlm //&& forkWidth >= FORK_WIDTH
 					&& barCounter >= 1 && barCounter < FORK_LENGTH - 1) {
 					//ENTRY mlmLine barrier
 					if(Low[0] <= mlmLine[barCounter] && Low[0] > lmLine[barCounter]
@@ -558,9 +608,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 						if (entryOrder == null && Position.MarketPosition == MarketPosition.Flat) {
 	                        barNumberOfOrder = CurrentBar;
 	                        Draw.ArrowUp(this, "o"+dotCounter, true, 0, mlmLine[barCounter], Brushes.Olive);
-							Draw.Text(this, "fk"+dotCounter, " mlm", 1, mlmLine[barCounter], Brushes.Olive);
+							Draw.Text(this, "fk"+dotCounter, " fk_mlm", 1, mlmLine[barCounter], Brushes.Olive);
 							//Draw.Text(this, "bc"+dotCounter, "long: "+Math.Round(mlmLine[barCounter], 2), 0, mlmLine[barCounter], Brushes.Olive);
-	                        if(!atMarket)
+	                       if(!atMarket)
 								EnterLongMIT(0, true, 1, mlmLine[barCounter], forkId);
 							else
 								EnterLong(1, forkId);
@@ -569,7 +619,29 @@ namespace NinjaTrader.NinjaScript.Strategies
 					}
 				}
 				// lower breakouts
-				if( (forkId.IndexOf("fk") != -1 || forkId.IndexOf("msfk") != -1)
+				if( msforkId.IndexOf("msfk") != -1 && msfkEntriesBrko
+					&& barCounter >= 2 && barCounter < FORK_LENGTH - 1) {
+					//ENTRY breakout at lmLine
+					if(High[2] <= ms_lmLine[barCounter]
+						&& High[1] <= ms_lmLine[barCounter]
+						&& High[0] > ms_lmLine[barCounter]
+						&& Close[0] < ms_lmLine[barCounter]
+						) {
+						if (entryOrder == null && Position.MarketPosition == MarketPosition.Flat) {
+	                        barNumberOfOrder = CurrentBar;
+	                        Draw.ArrowUp(this, "mso"+dotCounter, true, 0, ms_lmLine[barCounter], Brushes.Olive);
+							Draw.Text(this, "msk"+dotCounter, " ms_brko", 1, High[0], Brushes.Olive);
+							//Draw.Text(this, "bc"+dotCounter, ""+Math.Round(ms_lmLine[barCounter], 2), 0, ms_lmLine[barCounter], Brushes.Olive);
+							if(!atMarket)
+								EnterLongStopMarket(0, true, 1, ms_lmLine[barCounter] + TickSize, msforkId);
+							else
+								EnterLong(1, msforkId);
+							zeroLine = ms_lmLine[0];
+	                    }
+					}
+				}
+				// lower breakouts
+				if( forkId.IndexOf("_fk") != -1  && fkEntriesBrko
 					&& barCounter >= 2 && barCounter < FORK_LENGTH - 1) {
 					//ENTRY breakout at lmLine
 					if(High[2] <= lmLine[barCounter]
@@ -580,7 +652,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 						if (entryOrder == null && Position.MarketPosition == MarketPosition.Flat) {
 	                        barNumberOfOrder = CurrentBar;
 	                        Draw.ArrowUp(this, "o"+dotCounter, true, 0, lmLine[barCounter], Brushes.Olive);
-							Draw.Text(this, "k"+dotCounter, " brko", 1, High[0], Brushes.Olive);
+							Draw.Text(this, "k"+dotCounter, " fk_brko", 1, High[0], Brushes.Olive);
 							//Draw.Text(this, "bc"+dotCounter, ""+Math.Round(lmLine[barCounter], 2), 0, lmLine[barCounter], Brushes.Olive);
 							if(!atMarket)
 								EnterLongStopMarket(0, true, 1, lmLine[barCounter] + TickSize, forkId);
@@ -590,12 +662,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 	                    }
 					}
 				}
+				// #############################################################################
 
 				// exit positions that dont match this fork
 				if (Position.MarketPosition == MarketPosition.Long) {
 					// cancel pending unfilled orders
 					if(entryOrder!=null) {
-						if(entryOrder.Name != forkId) {
+						if(entryOrder.Name != forkId && entryOrder.Name != msforkId) {
 							Draw.ArrowDown(this, "o"+dotCounter, true, 0, Close[0], Brushes.Red);
 							Draw.Text(this, "cl"+dotCounter, ""+entryOrder.Name, 0, Low[0], Brushes.Red);
 							CancelOrder(entryOrder);
@@ -604,14 +677,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 					}
 					// exit filled orders
 					if(stopOrder!=null) {
-						if(stopOrder.FromEntrySignal != forkId) {
+						if(stopOrder.FromEntrySignal != forkId && stopOrder.FromEntrySignal != msforkId) {
 							//SetTrailStop(stopOrder.FromEntrySignal, CalculationMode.Price, Position.AveragePrice, false);
 							ExitLong("difk", stopOrder.FromEntrySignal);
 						}
 					}
 				}
 				// breakeven stop if 20 ticks in profit
-				//############# short #################
 				if (breakEvenStop && Position.MarketPosition == MarketPosition.Long 
 					&& Close[0] >= Position.AveragePrice - (40 * (TickSize / 2)))
 				{
@@ -636,7 +708,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 		}
 		protected override void OnOrderUpdate(Order order, double limitPrice, double stopPrice, int quantity, int filled, double averageFillPrice, OrderState orderState, DateTime time, ErrorCode error, string nativeError)
 		{
-			if (entryOrder == null && order.Name == forkId)
+			if (entryOrder == null && (order.Name == forkId || order.Name == msforkId) )
     		{	
         		entryOrder = order;
 				forkOrder = order;
@@ -661,15 +733,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 						|| execution.Order.OrderState == OrderState.PartFilled 
 						|| (execution.Order.OrderState == OrderState.Cancelled && execution.Order.Filled > 0))
 					{
-						if(marketPosition == MarketPosition.Short) {
-							stopOrder = ExitShortStopMarket(
-								0, true, execution.Order.Filled, 
-								execution.Order.AverageFillPrice - (STOP_VALUE/Bars.Instrument.MasterInstrument.PointValue), "atrShStp", forkOrder.Name);
-							targetOrder = ExitShortLimit(
-									0, true, execution.Order.Filled,
-									Position.AveragePrice - atrDollarValue,// 48/4,
-									"shortx", forkOrder.Name);
-						} else {
+						
 							// adjust stop based on fill price
 							// tight stop
 							int myStop = STOP_VALUE;
@@ -696,7 +760,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 							
 							stopOrder = ExitLongStopMarket(
 								0, true, execution.Order.Filled, 
-								execution.Order.AverageFillPrice - (myStop/Bars.Instrument.MasterInstrument.PointValue), "atrStop", forkOrder.Name);
+								execution.Order.AverageFillPrice - (myStop/Bars.Instrument.MasterInstrument.PointValue), 
+								"atrStop", forkOrder.Name);
 							
 							// tbd instead of 60, use dollar profit targets
 							if(forkOrder.Name.IndexOf("msfk") != -1) {
@@ -706,26 +771,19 @@ namespace NinjaTrader.NinjaScript.Strategies
 									//Math.Min(Position.AveragePrice +  48/pointTicks, Math.Round(hmLine[barCounter])),
 									//Math.Round(hmLine[barCounter]) -2*pointTicks,
 									Math.Min(Position.AveragePrice + PROFIT_TARGET/Bars.Instrument.MasterInstrument.PointValue, 
-									Math.Round(mLine[barCounter])),
+									Math.Round(ms_mLine[barCounter])),
 									"msfk", forkOrder.Name);
 							}
-							if(forkOrder.Name.IndexOf("fk") != -1) {
+							if(forkOrder.Name.IndexOf("_fk") != -1) {
 								targetOrder = ExitLongLimit(
 									0, true, execution.Order.Filled,
 									//Math.Max(Position.AveragePrice +  forkWidth/2, Position.AveragePrice + atrLocal),
 									//Math.Round(hmLine[barCounter]) -2*pointTicks,
 									Math.Min(Position.AveragePrice + PROFIT_TARGET/Bars.Instrument.MasterInstrument.PointValue, 
 									Math.Round(mLine[barCounter])),
-									"fk", forkOrder.Name);
+									"_fk", forkOrder.Name);
 							}
-							if(forkOrder.Name.IndexOf("bc") != -1) {
-								targetOrder = ExitLongLimit(
-									0, true, execution.Order.Filled,
-									Position.AveragePrice +  PROFIT_TARGET/Bars.Instrument.MasterInstrument.PointValue,
-									//Math.Max(Position.AveragePrice +  forkWidth/2, Position.AveragePrice + atrLocal), //3*myStop/Bars.Instrument.MasterInstrument.PointValue, 
-									"bc", forkOrder.Name);
-							}
-						}
+						
 
 						// Resets the entryOrder object to null after the order has been filled
 						if (execution.Order.OrderState != OrderState.PartFilled)
@@ -787,39 +845,63 @@ namespace NinjaTrader.NinjaScript.Strategies
 		public int STOP_VALUE
 		{ get; set; }
 		
-		[NinjaScriptProperty]
-		[Display(ResourceType = typeof(Custom.Resource), Name = "DRAW_TRIANGLES", GroupName = "NinjaScriptParameters", Order = 7)]
-		public bool DRAW_TRIANGLES
-		{ get; set; }
-		
-		[Range(1, 10), NinjaScriptProperty]
-		[Display(ResourceType = typeof(Custom.Resource), Name = "SLOPE_LIMIT_MSFK", GroupName = "NinjaScriptParameters", Order = 8)]
-		public int SLOPE_LIMIT_MSFK
-		{ get; set; }
 		
 		[Range(50, 3000), NinjaScriptProperty]
-		[Display(ResourceType = typeof(Custom.Resource), Name = "PROFIT_TARGET", GroupName = "NinjaScriptParameters", Order = 9)]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "PROFIT_TARGET", GroupName = "NinjaScriptParameters", Order =7)]
 		public int PROFIT_TARGET
 		{ get; set; }
 		
 		[NinjaScriptProperty]
-		[Display(ResourceType = typeof(Custom.Resource), Name = "DRAW_DOTS", GroupName = "NinjaScriptParameters", Order = 10)]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "DRAW_DOTS", GroupName = "NinjaScriptParameters", Order =8)]
 		public bool drawDots
 		{ get; set; }
 		
 		[NinjaScriptProperty]
-		[Display(ResourceType = typeof(Custom.Resource), Name = "AT_MARKET", GroupName = "NinjaScriptParameters", Order = 11)]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "AT_MARKET", GroupName = "NinjaScriptParameters", Order = 9)]
 		public bool atMarket
 		{ get; set; }
 	
 		[NinjaScriptProperty]
-		[Display(ResourceType = typeof(Custom.Resource), Name = "USE_ATR_STOPS", GroupName = "NinjaScriptParameters", Order = 12)]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "USE_ATR_STOPS", GroupName = "NinjaScriptParameters", Order = 10)]
 		public bool useATRStops
 		{ get; set; }
 		
 		[NinjaScriptProperty]
-		[Display(ResourceType = typeof(Custom.Resource), Name = "BREAKEVEN_STOP", GroupName = "NinjaScriptParameters", Order = 13)]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "BREAKEVEN_STOP", GroupName = "NinjaScriptParameters", Order = 11)]
 		public bool breakEvenStop
+		{ get; set; }
+		[NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "DRAW_PITCHFORKS", GroupName = "NinjaScriptParameters", Order = 12)]
+		public bool drawPitchforks
+		{ get; set; }
+		[NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "DRAW_MODIFIED_SCHIFF", GroupName = "NinjaScriptParameters", Order = 13)]
+		public bool drawModifiedSchiff
+		{ get; set; }
+		
+		[NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "MSFK_LM_ENTRIES", GroupName = "NinjaScriptParameters", Order = 14)]
+		public bool msfkEntries
+		{ get; set; }
+		[NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "MSFK_MLM_ENTRIES", GroupName = "NinjaScriptParameters", Order = 15)]
+		public bool msfkEntriesMlm
+		{ get; set; }
+		[NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "MSFK_BRKO_ENTRIES", GroupName = "NinjaScriptParameters", Order = 16)]
+		public bool msfkEntriesBrko
+		{ get; set; }
+		[NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "FK_LM_ENTRIES", GroupName = "NinjaScriptParameters", Order = 17)]
+		public bool fkEntries
+		{ get; set; }
+		[NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "FK_MLM_ENTRIES", GroupName = "NinjaScriptParameters", Order = 18)]
+		public bool fkEntriesMlm
+		{ get; set; }
+		[NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "FK_BRKO_ENTRIES", GroupName = "NinjaScriptParameters", Order = 19)]
+		public bool fkEntriesBrko
 		{ get; set; }
 		
 		#endregion
