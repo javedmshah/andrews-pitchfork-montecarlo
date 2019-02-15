@@ -89,6 +89,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 		int delta = 0;
 		string forkId = "";
 		string msforkId = "";
+		string shortforkId = "";
 		string dtforkId = "";
 		float forkSlope = 0;
 		double forkWidth = 0;
@@ -112,7 +113,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				Slippage									= 0;
 				StartBehavior								= StartBehavior.AdoptAccountPosition;
 				TimeInForce									= TimeInForce.Gtc;
-				TraceOrders									= false;
+				TraceOrders									= true;
 				RealtimeErrorHandling						= RealtimeErrorHandling.StopCancelClose;
 				StopTargetHandling							= StopTargetHandling.PerEntryExecution;
 				BarsRequiredToTrade							= 10;
@@ -143,6 +144,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 				msfkTargetLine = 1;
 				BREAKEVEN_TICKS = 20;
 				SHOW_BARCOUNT = false;
+				shortEntries = false;
+				SHORT_PROFIT_TARGET = 450;
+				SHORT_STOP_VALUE = 350;
 			}
 			else if (State == State.Realtime)
 			{
@@ -417,7 +421,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 								dt_mlmLine[i] = dt_mlmLine[0] + mlSlope*(i + dtmedianLBarsAgo);
 							}
 							dtbarCounter = 0;
-							dtforkId = "_dtfk:"+Math.Round(mlSlope, 2)+"-"+Math.Round(atr, 2);
+							forkId = "_dtfk:"+Math.Round(mlSlope, 2)+"-"+Math.Round(atr, 2);
 							
 						    // just draw triangles
 							if(drawDTPitchforks) {
@@ -427,13 +431,28 @@ namespace NinjaTrader.NinjaScript.Strategies
 								Draw.Line(this, "dtac"+counter, dtMaxHighBarsAgo, dtMaxHigh, maxHighBarsAgo, maxHigh, Brushes.DimGray);
 								Draw.Text(this, "id"+counter, forkId, 
 									(dtMaxHighBarsAgo+maxHighBarsAgo)/2, (dtMaxHigh+maxHigh)/2, Brushes.DarkTurquoise);
-							} 
+							}
 						}
-						
 					}
-					
 				}
 				// ########### End DT fork calcs ##################
+				if (forkId.IndexOf("_dtfk") != -1  && shortEntries
+					&& barCounter >= 1 && barCounter < DT_FORK_LENGTH - 1) {
+	                // ENTRY pitchfork lmLine barrier
+	                if (High[0] >= dt_lmLine[barCounter]
+	                    && Close[0] < dt_lmLine[barCounter] - TickSize
+						&& Low[1] < dt_lmLine[barCounter] 
+						&& Low[2] < dt_lmLine[barCounter]
+	                    ) {
+	                    if (entryOrder == null && Position.MarketPosition == MarketPosition.Flat) {
+							barNumberOfOrder = CurrentBar;
+	                        Draw.ArrowDown(this, "o" + dotCounter, true, 0, dt_lmLine[barCounter], Brushes.Red);
+							Draw.Text(this, "dtfk"+dotCounter, " dt_lml", 1, dt_lmLine[barCounter], Brushes.Olive);
+	                        dotCounter++;
+							EnterShortLimit(dt_lmLine[barCounter]-TickSize, forkId);
+	                    }
+	                }
+	            }
 				
 				// get me the lowest low since the maxHigh occurred
 				//if(prevMinLowRecent != minLowRecent)
@@ -673,7 +692,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 					changeHigh = changeMajorLow = changeRecentLow = false;
 				
 	  			}
-					
+				
+				// Displays the master instrument's point value at the bottom right of the chart
+				//Draw.TextFixed(this, "Point value: ", ""+Bars.Instrument.MasterInstrument.PointValue, TextPosition.BottomRight);
+				
 	            // ##################################################
 	            // ################## check for entries #############
 				
@@ -799,30 +821,39 @@ namespace NinjaTrader.NinjaScript.Strategies
 					}
 				}
 				//  as long as the stopPrice is not more than the limitPrice. So, in your case, if x >= y, the order will not be rejected. 
-				if (limitOrderPriceL != -1) {
+				if (limitOrderPriceL != -1 && entryOrder == null) {
 					if (GetCurrentAsk() < limitOrderPriceL) 
 						EnterLongStopLimit(0, true, 1, limitOrderPriceL, limitOrderPriceL - TickSize, signalName);
 					else 
 						EnterLongLimit(0, true, 1, limitOrderPriceL, signalName);
 					limitOrderPriceL = -1;	
 				}
-				
-				// #################################################
-
-				// exit positions that dont match this fork
-				if (Position.MarketPosition == MarketPosition.Long) {
+				// exit unfiled shorts after 1 bar no fill
+				if (CurrentBar > barNumberOfOrder + 1 && Position.MarketPosition == MarketPosition.Flat) {
 					// cancel pending unfilled orders
 					if(entryOrder!=null) {
-						if(entryOrder.Name != forkId && entryOrder.Name != msforkId) {
+						Draw.ArrowDown(this, "o"+dotCounter, true, 0, Close[0], Brushes.Red);
+						Draw.Text(this, "cl"+dotCounter, ""+entryOrder.Name, 0, Low[0], Brushes.Red);
+						CancelOrder(entryOrder);
+						entryOrder = null;
+					}
+				}
+				
+				// #################################################
+				// exit positions that dont match this fork
+				if (Position.MarketPosition != MarketPosition.Flat) {
+					// cancel pending unfilled orders
+					if(entryOrder!=null) {
+						if(entryOrder.Name != forkId || entryOrder.Name != msforkId) {
 							Draw.ArrowDown(this, "o"+dotCounter, true, 0, Close[0], Brushes.Red);
 							Draw.Text(this, "cl"+dotCounter, ""+entryOrder.Name, 0, Low[0], Brushes.Red);
 							CancelOrder(entryOrder);
 							entryOrder = null;		
-						}					
+						}
 					}
 					// exit filled orders
 					if(stopOrder!=null) {
-						if(stopOrder.FromEntrySignal != forkId && stopOrder.FromEntrySignal != msforkId) {
+						if(stopOrder.FromEntrySignal != forkId || stopOrder.FromEntrySignal != msforkId) {
 							//SetTrailStop(stopOrder.FromEntrySignal, CalculationMode.Price, Position.AveragePrice, false);
 							ExitLong("difk", stopOrder.FromEntrySignal);
 						}
@@ -831,7 +862,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				// ############################################
 				// breakeven stop if some ticks in profit
 				if (breakEvenStop && Position.MarketPosition == MarketPosition.Long 
-					&& Close[0] >= Position.AveragePrice - (BREAKEVEN_TICKS*2 * (TickSize / 2)))
+					&& Close[0] >= Position.AveragePrice + (BREAKEVEN_TICKS*2 * (TickSize / 2)))
 				{
 					// Checks to see if our Stop Order has been submitted already
 					if (stopOrder != null && stopOrder.StopPrice < Position.AveragePrice)
@@ -843,7 +874,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 							Position.AveragePrice + TickSize, "chkn", forkOrder.Name);
 					}
 				}
-				
 				dotCounter++;
 				// only draw N pitchforks at any given time
 				if(counter >= LIMIT) counter = 0;
@@ -898,20 +928,29 @@ namespace NinjaTrader.NinjaScript.Strategies
 									myStop = STOP_VALUE;
 								}
 							}
-							Draw.Text(this, "stp"+dotCounter, "-$"+ myStop, 0, High[0]+2*TickSize);
-							Draw.Text(this, "tgt"+dotCounter, 
-								""+ Math.Min(Position.AveragePrice + myStop/Bars.Instrument.MasterInstrument.PointValue, 
-								Math.Round(mhmLine[barCounter])), 0, High[0]);
-							dotCounter++;
 							
-							stopOrder = ExitLongStopMarket(
-								0, true, execution.Order.Filled, 
-								execution.Order.AverageFillPrice - (myStop/Bars.Instrument.MasterInstrument.PointValue), 
-								"atrStop", forkOrder.Name);
+							if( Position.MarketPosition == MarketPosition.Long) {
+								Draw.Text(this, "stp"+dotCounter, "-$"+ myStop, 0, High[0]+2*TickSize);
+								stopOrder = ExitLongStopMarket(
+									0, true, execution.Order.Filled, 
+									execution.Order.AverageFillPrice - (myStop/Bars.Instrument.MasterInstrument.PointValue), 
+									"lng_stp", forkOrder.Name);
+							}
+							if( Position.MarketPosition == MarketPosition.Short) {
+								stopOrder = ExitShortStopMarket(
+									0, true, execution.Order.Filled, 
+									execution.Order.AverageFillPrice + SHORT_STOP_VALUE / Bars.Instrument.MasterInstrument.PointValue, 
+									"sh_stp", forkOrder.Name);
+							
+								targetOrder = ExitShortLimit(
+									0, true, execution.Order.Filled,
+									Position.AveragePrice - SHORT_PROFIT_TARGET / Bars.Instrument.MasterInstrument.PointValue,
+									"sh_pt", forkOrder.Name);
+							}
 							
 							double pt = Position.AveragePrice + PROFIT_TARGET/Bars.Instrument.MasterInstrument.PointValue;
 							
-							if(forkOrder.Name.IndexOf("msfk") != -1) {
+							if(forkOrder.Name.IndexOf("msfk") != -1  && Position.MarketPosition == MarketPosition.Long) {
 								switch(msfkTargetLine) {
 								case 1:
 									pt = Math.Min(Position.AveragePrice + PROFIT_TARGET/Bars.Instrument.MasterInstrument.PointValue, 
@@ -930,15 +969,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 										Math.Round(ms_hmLine[barCounter]));
 									break;
 								}
+								Draw.Text(this, "tgt"+dotCounter, ""+ pt, 0, High[0]);
 								targetOrder = ExitLongLimit(
 									0, true, execution.Order.Filled,
-									//Math.Max(Position.AveragePrice +  forkWidth/2, Position.AveragePrice + atrLocal),
-									//Math.Min(Position.AveragePrice +  48/pointTicks, Math.Round(hmLine[barCounter])),
-									//Math.Round(hmLine[barCounter]) -2*pointTicks,
 									pt,
 									"msfk", forkOrder.Name);
 							}
-							if(forkOrder.Name.IndexOf("_fk") != -1) {
+							if(forkOrder.Name.IndexOf("_fk") != -1 && Position.MarketPosition == MarketPosition.Long) {
 								switch(fkTargetLine) {
 								case 1:
 									pt = Math.Min(Position.AveragePrice + PROFIT_TARGET/Bars.Instrument.MasterInstrument.PointValue, 
@@ -953,16 +990,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 										Math.Round(hmLine[barCounter]));
 									break;
 								}
+								Draw.Text(this, "tgt"+dotCounter, ""+ pt, 0, High[0]);
 								targetOrder = ExitLongLimit(
 									0, true, execution.Order.Filled,
-									//Math.Max(Position.AveragePrice +  forkWidth/2, Position.AveragePrice + atrLocal),
-									//Math.Round(hmLine[barCounter]) -2*pointTicks,
 									Math.Min(Position.AveragePrice + PROFIT_TARGET/Bars.Instrument.MasterInstrument.PointValue, 
 									Math.Round(mLine[barCounter])),
 									"_fk", forkOrder.Name);
 							}
-						
-
+							dotCounter++;
 						// Resets the entryOrder object to null after the order has been filled
 						if (execution.Order.OrderState != OrderState.PartFilled)
 							entryOrder = null;
@@ -1022,11 +1057,17 @@ namespace NinjaTrader.NinjaScript.Strategies
 		[Display(ResourceType = typeof(Custom.Resource), Name = "STOP_VALUE", GroupName = "NinjaScriptParameters", Order = 6)]
 		public int STOP_VALUE
 		{ get; set; }
-		
-		
 		[Range(50, 3000), NinjaScriptProperty]
 		[Display(ResourceType = typeof(Custom.Resource), Name = "PROFIT_TARGET", GroupName = "NinjaScriptParameters", Order =7)]
 		public int PROFIT_TARGET
+		{ get; set; }
+		[Range(100, 3000), NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "SHORT_STOP_VALUE", GroupName = "NinjaScriptParameters", Order = 27)]
+		public int SHORT_STOP_VALUE
+		{ get; set; }
+		[Range(50, 3000), NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "SHORT_PROFIT_TARGET", GroupName = "NinjaScriptParameters", Order =28)]
+		public int SHORT_PROFIT_TARGET
 		{ get; set; }
 		
 		[NinjaScriptProperty]
@@ -1101,6 +1142,41 @@ namespace NinjaTrader.NinjaScript.Strategies
 		[Display(ResourceType = typeof(Custom.Resource), Name = "SHOW_BARCOUNT", GroupName = "NinjaScriptParameters", Order = 25)]
 		public bool SHOW_BARCOUNT
 		{ get; set; }
+		
+		[NinjaScriptProperty]
+		[Display(ResourceType = typeof(Custom.Resource), Name = "SHORTS", GroupName = "NinjaScriptParameters", Order = 26)]
+		public bool shortEntries
+		{ get; set; }
 		#endregion
 	}
 }
+
+/*
+
+				// ###### trying LinReg of Lows inside a fork since the C pivot ###
+				// ###### if PrevClose is lower than LinReg and CurrentOpen is below it
+				// ###### then we will short a retouch of LinReg line
+				// ###### build a Line with slope equal to LinReg slope
+				double linRegLowSlope = -1;
+				double linRegLow = -1;
+				if( barCounter >= 7 
+					&& shortEntries && Position.MarketPosition == MarketPosition.Flat) {
+					linRegLow = Math.Round(LinReg(Low, barCounter)[0]);
+					linRegLowSlope = Math.Round(LinRegSlope(Low, barCounter)[0]);
+	                //SHORT ENTRY linreg trendline breach 
+	                if (Low[0] < linRegLow && Close[0] < linRegLow) {
+						//Draw.Text(this, "cl"+dotCounter, ""+linRegLowSlope, 0, High[0], Brushes.Violet);
+                    	Draw.Dot(this, "lr"+dotCounter, true, 0, linRegLow, Brushes.Gray);
+	                    if (entryOrder == null) {
+							barNumberOfOrder = CurrentBar;
+	                        Draw.ArrowDown(this, "o" + dotCounter, true, 0, linRegLow + TickSize, Brushes.Red);
+							Draw.Text(this, "fk"+dotCounter, " sh", 1, linRegLow, Brushes.Red);
+							//if (GetCurrentBid() < linRegLow) 
+								//EnterShortStopLimit(0, false, 1, linRegLow, linRegLow - TickSize, forkId);
+							//else 
+								EnterShortLimit(0, true, 1, linRegLow, forkId);
+							}
+                        dotCounter++;
+		            }
+				}
+*/
