@@ -219,6 +219,11 @@ namespace NinjaTrader.NinjaScript.Strategies
 				//Add your custom strategy logic here.
 				if( CurrentBar < HIGH_STRENGTH*2)
 					return;
+				
+				if((ToTime(Time[0]) >= 133000 || ToTime(Time[0]) <= 060000)) {
+					return;
+				}
+				
 				if(SHOW_BARCOUNT)
 					Draw.Text(this, "cb"+dotCounter, ""+CurrentBar, 0, High[0]);
 				//dotCounter++;
@@ -235,18 +240,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 					/* NOTE: Using .AllTrades will include both historical virtual trades as well as real-time trades.
 					If you want to only count profits from real-time trades please use .RealtimeTrades. */
 				}
-				// cancel pending orders at session close
-				if(Bars.IsLastBarOfSession) {
-					if(entryOrder != null)
-					{
-						Draw.ArrowDown(this, "o"+dotCounter, true, 0, Close[0], Brushes.Red);
-						Draw.Text(this, "cl"+dotCounter, ""+entryOrder.Name, 0, Low[0], Brushes.Red);
-	                    dotCounter++;
-						CancelOrder(entryOrder);
-						entryOrder = null;						
-					}
-				}
-				
 				
 				// 
 				if(barCounter != -99)
@@ -356,7 +349,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 					
 					if(changeMajorLow) {
 						changeDTmaxHigh = true;
-						//if(drawDots) 
+						if(drawDots) 
 							Draw.Dot(this, "dtml"+dotCounter, true, dtMaxHighBarsAgo, dtMaxHigh, Brushes.DarkGray);
 					}
 					
@@ -417,7 +410,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 								dt_mlmLine[i] = dt_mlmLine[0] + mlSlope*(i + dtmedianLBarsAgo);
 							}
 							dtbarCounter = 0;
-							dtforkId = "_dtfk:"+Math.Round(mlSlope, 2)+"-"+Math.Round(atr, 2);
+							forkId = "_dtfk:"+Math.Round(mlSlope, 2)+"-"+Math.Round(atr, 2);
 							
 						    // just draw triangles
 							if(drawDTPitchforks) {
@@ -799,7 +792,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 					}
 				}
 				//  as long as the stopPrice is not more than the limitPrice. So, in your case, if x >= y, the order will not be rejected. 
-				if (limitOrderPriceL != -1) {
+				if (limitOrderPriceL != -1 && entryOrder == null && ((ToTime(Time[0]) <= 120000 && ToTime(Time[0]) >= 063000))) {
 					if (GetCurrentAsk() < limitOrderPriceL) 
 						EnterLongStopLimit(0, true, 1, limitOrderPriceL, limitOrderPriceL - TickSize, signalName);
 					else 
@@ -831,7 +824,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				// ############################################
 				// breakeven stop if some ticks in profit
 				if (breakEvenStop && Position.MarketPosition == MarketPosition.Long 
-					&& Close[0] >= Position.AveragePrice - (BREAKEVEN_TICKS*2 * (TickSize / 2)))
+					&& Close[0] >= Position.AveragePrice + (BREAKEVEN_TICKS*2 * (TickSize / 2)))
 				{
 					// Checks to see if our Stop Order has been submitted already
 					if (stopOrder != null && stopOrder.StopPrice < Position.AveragePrice)
@@ -843,7 +836,28 @@ namespace NinjaTrader.NinjaScript.Strategies
 							Position.AveragePrice + TickSize, "chkn", forkOrder.Name);
 					}
 				}
-				
+				// exit unfilled orders after FORK_LENGTH bars no fill
+				if (CurrentBar - barNumberOfOrder >= FORK_LENGTH - 1 && Position.MarketPosition == MarketPosition.Flat) {
+					// cancel pending unfilled orders
+					if(entryOrder!=null) {
+						Draw.ArrowDown(this, "o"+dotCounter, true, 0, Close[0], Brushes.Red);
+						Draw.Text(this, "cl"+dotCounter, ""+entryOrder.Name, 0, Low[0], Brushes.Red);
+						CancelOrder(entryOrder);
+						entryOrder = null;
+					}
+				}
+				// cancel pending orders at session close
+				//if(Bars.IsLastBarOfSession) {
+				if((ToTime(Time[0]) >= 130000)) {
+					if(entryOrder != null)
+					{
+						Draw.ArrowDown(this, "o"+dotCounter, true, 0, Close[0], Brushes.Red);
+						Draw.Text(this, "cl"+dotCounter, ""+entryOrder.Name, 0, Low[0], Brushes.Red);
+	                    dotCounter++;
+						CancelOrder(entryOrder);
+						entryOrder = null;						
+					}
+				}
 				dotCounter++;
 				// only draw N pitchforks at any given time
 				if(counter >= LIMIT) counter = 0;
@@ -899,15 +913,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 								}
 							}
 							Draw.Text(this, "stp"+dotCounter, "-$"+ myStop, 0, High[0]+2*TickSize);
-							Draw.Text(this, "tgt"+dotCounter, 
-								""+ Math.Min(Position.AveragePrice + myStop/Bars.Instrument.MasterInstrument.PointValue, 
-								Math.Round(mhmLine[barCounter])), 0, High[0]);
-							dotCounter++;
 							
-							stopOrder = ExitLongStopMarket(
-								0, true, execution.Order.Filled, 
-								execution.Order.AverageFillPrice - (myStop/Bars.Instrument.MasterInstrument.PointValue), 
-								"atrStop", forkOrder.Name);
+							if((ToTime(Time[0]) <= 123000 && ToTime(Time[0]) >= 063000)) {
+								stopOrder = ExitLongStopMarket(
+									0, true, execution.Order.Filled, 
+									execution.Order.AverageFillPrice - (myStop/Bars.Instrument.MasterInstrument.PointValue), 
+									"atrStop", forkOrder.Name);
+							}
 							
 							double pt = Position.AveragePrice + PROFIT_TARGET/Bars.Instrument.MasterInstrument.PointValue;
 							
@@ -930,13 +942,17 @@ namespace NinjaTrader.NinjaScript.Strategies
 										Math.Round(ms_hmLine[barCounter]));
 									break;
 								}
-								targetOrder = ExitLongLimit(
-									0, true, execution.Order.Filled,
-									//Math.Max(Position.AveragePrice +  forkWidth/2, Position.AveragePrice + atrLocal),
-									//Math.Min(Position.AveragePrice +  48/pointTicks, Math.Round(hmLine[barCounter])),
-									//Math.Round(hmLine[barCounter]) -2*pointTicks,
-									pt,
-									"msfk", forkOrder.Name);
+								Draw.Text(this, "tgt"+dotCounter, ""+pt, 0, High[0]);
+								dotCounter++;
+								if((ToTime(Time[0]) <= 123000 && ToTime(Time[0]) >= 063000)) {
+									targetOrder = ExitLongLimit(
+										0, true, execution.Order.Filled,
+										//Math.Max(Position.AveragePrice +  forkWidth/2, Position.AveragePrice + atrLocal),
+										//Math.Min(Position.AveragePrice +  48/pointTicks, Math.Round(hmLine[barCounter])),
+										//Math.Round(hmLine[barCounter]) -2*pointTicks,
+										pt,
+										"msfk", forkOrder.Name);
+								}
 							}
 							if(forkOrder.Name.IndexOf("_fk") != -1) {
 								switch(fkTargetLine) {
@@ -953,15 +969,18 @@ namespace NinjaTrader.NinjaScript.Strategies
 										Math.Round(hmLine[barCounter]));
 									break;
 								}
-								targetOrder = ExitLongLimit(
-									0, true, execution.Order.Filled,
-									//Math.Max(Position.AveragePrice +  forkWidth/2, Position.AveragePrice + atrLocal),
-									//Math.Round(hmLine[barCounter]) -2*pointTicks,
-									Math.Min(Position.AveragePrice + PROFIT_TARGET/Bars.Instrument.MasterInstrument.PointValue, 
-									Math.Round(mLine[barCounter])),
-									"_fk", forkOrder.Name);
+								Draw.Text(this, "tgt"+dotCounter, ""+pt, 0, High[0]);
+								if((ToTime(Time[0]) <= 123000 && ToTime(Time[0]) >= 063000)) {
+									targetOrder = ExitLongLimit(
+										0, true, execution.Order.Filled,
+										//Math.Max(Position.AveragePrice +  forkWidth/2, Position.AveragePrice + atrLocal),
+										//Math.Round(hmLine[barCounter]) -2*pointTicks,
+										Math.Min(Position.AveragePrice + PROFIT_TARGET/Bars.Instrument.MasterInstrument.PointValue, 
+										Math.Round(mLine[barCounter])),
+										"_fk", forkOrder.Name);
+								}
 							}
-						
+							dotCounter++;
 
 						// Resets the entryOrder object to null after the order has been filled
 						if (execution.Order.OrderState != OrderState.PartFilled)
